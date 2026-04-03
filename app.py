@@ -52,21 +52,39 @@ if st.session_state.get("authentication_status"):
             submit_button = st.form_submit_button("Submit Entry")
 
         if submit_button:
-            current_gsheet_df = conn.read(worksheet="Sheet1").dropna(how="all")
-            new_row = pd.DataFrame([{
+            try:
+                raw_data = conn.read(worksheet="Sheet1", ttl=0) # ttl=0 bypasses all cache
+                
+                if raw_data is not None and not raw_data.empty:
+                    current_gsheet_df = raw_data.dropna(how="all")
+                else:
+                    current_gsheet_df = pd.DataFrame(columns=["Date", "Weight"])
+            except Exception as e:
+                st.error(f"Could not connect to Google Sheets: {e}")
+                st.stop()
+
+            new_entry = {
                 "Date": entry_date.strftime("%Y-%m-%d"), 
-                "Weight": entry_weight
-            }])
-            updated_df = pd.concat([current_gsheet_df, new_row], ignore_index=True)
+                "Weight": float(entry_weight)
+            }
+
+            all_records = current_gsheet_df.to_dict(orient='records')
+            all_records.append(new_entry)
             
-            updated_df['Date'] = pd.to_datetime(updated_df['Date']).dt.strftime('%Y-%m-%d')
-            updated_df = updated_df.sort_values(by="Date")
+            final_df = pd.DataFrame(all_records)
             
-            conn.update(worksheet="Sheet1", data=updated_df)
-            
-            # FIX: Target the specific cache instead of clearing the whole app globally
-            fetch_data.clear()
-            st.rerun()
+            final_df = final_df[["Date", "Weight"]]
+            final_df['Date'] = pd.to_datetime(final_df['Date']).dt.strftime('%Y-%m-%d')
+            final_df = final_df.drop_duplicates(subset=['Date'], keep='last')
+            final_df = final_df.sort_values(by="Date")
+
+            if len(final_df) >= len(current_gsheet_df):
+                conn.update(worksheet="Sheet1", data=final_df)
+                st.success("Weight logged successfully!")
+                st.cache_data.clear()
+                st.rerun()
+            else:
+                st.error("Data validation failed. The app tried to save fewer rows than currently exist. Operation aborted to protect your data.")
 
     # --- DATA PROCESSING & DASHBOARD ---
     if not df.empty:
