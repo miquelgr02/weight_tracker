@@ -62,7 +62,7 @@ if st.session_state["authentication_status"]:
         total_gained = latest_weight - df.iloc[0]['Weight']
 
         m1.metric("Current", f"{latest_weight:.1f} kg")
-        m2.metric(f"{window}-Day Avg", f"{latest_rolling:.2f} kg" if not pd_isna := pd.isna(latest_rolling) else "N/A")
+        m2.metric(f"{window}-Day Avg", f"{latest_rolling:.2f} kg" if pd.notna(latest_rolling) else "N/A")
         m3.metric("Total Progress", f"{total_gained:+.1f} kg")
 
         # --- CHART 1: DAILY VS ROLLING ---
