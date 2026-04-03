@@ -32,7 +32,7 @@ if st.session_state.get("authentication_status"):
 
     @st.cache_data(ttl=600)
     def fetch_data():
-        data = conn.read(worksheet="Sheet1")
+        data = conn.read(worksheet="Sheet1")[["Date", "Weight"]]
         # Ensure we drop any entirely empty rows that might pull from GSheets
         data = data.dropna(how="all")
         data['Date'] = pd.to_datetime(data['Date'])
@@ -56,8 +56,6 @@ if st.session_state.get("authentication_status"):
             new_row = pd.DataFrame([{"Date": entry_date.strftime("%Y-%m-%d"), "Weight": entry_weight}])
             updated_df = pd.concat([df, new_row], ignore_index=True)
             
-            # FIX: Convert all dates back to strict strings before sending to Google Sheets API
-            # This prevents the fatal JSON Timestamp serialization crash.
             updated_df['Date'] = pd.to_datetime(updated_df['Date']).dt.strftime('%Y-%m-%d')
             
             # Sort again just in case a past date was added
