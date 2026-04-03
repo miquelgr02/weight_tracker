@@ -5,14 +5,22 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+import copy  # <--- 1. Add this import
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Bulking Dashboard", layout="wide")
 
 # --- AUTHENTICATION SETUP ---
-credentials = dict(st.secrets["credentials"])
+# 2. Use deepcopy so the library can modify the data in memory
+credentials = copy.deepcopy(st.secrets["credentials"]) 
 cookie = st.secrets["cookie"]
-authenticator = stauth.Authenticate(credentials, cookie["name"], cookie["key"], cookie["expiry_days"])
+
+authenticator = stauth.Authenticate(
+    credentials,
+    cookie["name"],
+    cookie["key"],
+    cookie["expiry_days"]
+)
 authenticator.login()
 
 if st.session_state["authentication_status"]:
