@@ -5,13 +5,13 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
-import copy  # <--- 1. Add this import
+import copy 
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Bulking Dashboard", layout="wide")
 
 # --- AUTHENTICATION SETUP ---
-# 2. Use deepcopy so the library can modify the data in memory
+secrets_dict = st.secrets.to_dict()
 credentials = copy.deepcopy(st.secrets["credentials"]) 
 cookie = st.secrets["cookie"]
 
@@ -23,15 +23,18 @@ authenticator = stauth.Authenticate(
 )
 authenticator.login()
 
-if st.session_state["authentication_status"]:
+# Using .get() prevents KeyError if the session state hasn't initialized properly
+if st.session_state.get("authentication_status"):
     authenticator.logout("Logout", "sidebar")
     
-    # 1. Initialize Connection & Fetch Data
+    # Initialize Connection
     conn = st.connection("gsheets", type=GSheetsConnection)
 
     @st.cache_data(ttl=600)
     def fetch_data():
         data = conn.read(worksheet="Sheet1")
+        # Ensure we drop any entirely empty rows that might pull from GSheets
+        data = data.dropna(how="all")
         data['Date'] = pd.to_datetime(data['Date'])
         return data.sort_values(by="Date")
 
@@ -52,8 +55,18 @@ if st.session_state["authentication_status"]:
         if submit_button:
             new_row = pd.DataFrame([{"Date": entry_date.strftime("%Y-%m-%d"), "Weight": entry_weight}])
             updated_df = pd.concat([df, new_row], ignore_index=True)
+            
+            # FIX: Convert all dates back to strict strings before sending to Google Sheets API
+            # This prevents the fatal JSON Timestamp serialization crash.
+            updated_df['Date'] = pd.to_datetime(updated_df['Date']).dt.strftime('%Y-%m-%d')
+            
+            # Sort again just in case a past date was added
+            updated_df = updated_df.sort_values(by="Date")
+            
             conn.update(worksheet="Sheet1", data=updated_df)
-            st.cache_data.clear()
+            
+            # FIX: Target the specific cache instead of clearing the whole app globally
+            fetch_data.clear()
             st.rerun()
 
     # --- DATA PROCESSING & DASHBOARD ---
@@ -126,6 +139,7 @@ if st.session_state["authentication_status"]:
 
         # --- CALORIE ADVICE ---
         if len(df) >= 14:
+            # Note: This checks the last 14 logged entries, not strictly the last 14 calendar days.
             diff = df.iloc[-7:]['Weight'].mean() - df.iloc[-14:-7]['Weight'].mean()
             st.divider()
             if diff > 0.2:
@@ -138,5 +152,5 @@ if st.session_state["authentication_status"]:
     else:
         st.info("Please log your first entry to generate charts.")
 
-elif st.session_state["authentication_status"] is False:
+elif st.session_state.get("authentication_status") is False:
     st.error("Invalid credentials.")
