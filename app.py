@@ -32,8 +32,7 @@ if st.session_state.get("authentication_status"):
 
     @st.cache_data(ttl=600)
     def fetch_data():
-        data = conn.read(worksheet="Sheet1")[["Date", "Weight"]]
-        # Ensure we drop any entirely empty rows that might pull from GSheets
+        data = conn.read(worksheet="Sheet1")
         data = data.dropna(how="all")
         data['Date'] = pd.to_datetime(data['Date'])
         return data.sort_values(by="Date")
@@ -53,12 +52,14 @@ if st.session_state.get("authentication_status"):
             submit_button = st.form_submit_button("Submit Entry")
 
         if submit_button:
-            new_row = pd.DataFrame([{"Date": entry_date.strftime("%Y-%m-%d"), "Weight": entry_weight}])
-            updated_df = pd.concat([df, new_row], ignore_index=True)
+            current_gsheet_df = conn.read(worksheet="Sheet1").dropna(how="all")
+            new_row = pd.DataFrame([{
+                "Date": entry_date.strftime("%Y-%m-%d"), 
+                "Weight": entry_weight
+            }])
+            updated_df = pd.concat([current_gsheet_df, new_row], ignore_index=True)
             
             updated_df['Date'] = pd.to_datetime(updated_df['Date']).dt.strftime('%Y-%m-%d')
-            
-            # Sort again just in case a past date was added
             updated_df = updated_df.sort_values(by="Date")
             
             conn.update(worksheet="Sheet1", data=updated_df)
@@ -69,16 +70,17 @@ if st.session_state.get("authentication_status"):
 
     # --- DATA PROCESSING & DASHBOARD ---
     if not df.empty:
+        display_df = df[["Date", "Weight"]].copy()
         # Calculations
-        df['Rolling_Avg'] = df['Weight'].rolling(window=window).mean()
-        weekly_df = df.resample('W-SUN', on='Date').mean(numeric_only=True).reset_index()
+        display_df['Rolling_Avg'] = display_df['Weight'].rolling(window=window).mean()
+        weekly_df = display_df.resample('W-SUN', on='Date').mean(numeric_only=True).reset_index()
 
         # Metrics Row
         st.title("🦭 Bulking Dashboard")
         m1, m2, m3 = st.columns(3)
-        latest_weight = df.iloc[-1]['Weight']
-        latest_rolling = df.iloc[-1]['Rolling_Avg']
-        total_gained = latest_weight - df.iloc[0]['Weight']
+        latest_weight = display_df.iloc[-1]['Weight']
+        latest_rolling = display_df.iloc[-1]['Rolling_Avg']
+        total_gained = latest_weight - display_df.iloc[0]['Weight']
 
         m1.metric("Current", f"{latest_weight:.1f} kg")
         m2.metric(f"{window}-Day Avg", f"{latest_rolling:.2f} kg" if pd.notna(latest_rolling) else "N/A")
@@ -90,7 +92,7 @@ if st.session_state.get("authentication_status"):
 
         # Daily Weight (Faint dots)
         fig_trend.add_trace(go.Scatter(
-            x=df['Date'], y=df['Weight'],
+            x=display_df['Date'], y=display_df['Weight'],
             mode='markers',
             name='Daily Weight',
             marker=dict(color='rgba(255, 255, 255, 0.2)', size=6),
@@ -99,7 +101,7 @@ if st.session_state.get("authentication_status"):
 
         # Rolling Average (Thick Line)
         fig_trend.add_trace(go.Scatter(
-            x=df['Date'], y=df['Rolling_Avg'],
+            x=display_df['Date'], y=display_df['Rolling_Avg'],
             mode='lines',
             name=f'{window}-Day Avg',
             line=dict(color='#00d4ff', width=4),
@@ -136,9 +138,9 @@ if st.session_state.get("authentication_status"):
         st.plotly_chart(fig_weekly, use_container_width=True)
 
         # --- CALORIE ADVICE ---
-        if len(df) >= 14:
+        if len(display_df) >= 14:
             # Note: This checks the last 14 logged entries, not strictly the last 14 calendar days.
-            diff = df.iloc[-7:]['Weight'].mean() - df.iloc[-14:-7]['Weight'].mean()
+            diff = display_df.iloc[-7:]['Weight'].mean() - display_df.iloc[-14:-7]['Weight'].mean()
             st.divider()
             if diff > 0.2:
                 st.warning(f"⚠️ **Eat less.** Weekly gain: {diff:.2f}kg. Slow down to minimize fat gain.")
