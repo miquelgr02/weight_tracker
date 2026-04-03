@@ -12,8 +12,8 @@ st.set_page_config(page_title="Bulking Dashboard", layout="wide")
 
 # --- AUTHENTICATION SETUP ---
 secrets_dict = st.secrets.to_dict()
-credentials = copy.deepcopy(st.secrets["credentials"]) 
-cookie = st.secrets["cookie"]
+credentials = copy.deepcopy(secrets_dict["credentials"]) 
+cookie = secrets_dict["cookie"]
 
 authenticator = stauth.Authenticate(
     credentials,
