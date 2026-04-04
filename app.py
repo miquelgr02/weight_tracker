@@ -153,62 +153,81 @@ if st.session_state.get("authentication_status"):
             st.plotly_chart(fig_weekly, use_container_width=True)
 
         # --- TAB 2: EDIT DATA ---
-        with tab2:
-            st.subheader("Manage Data")
+    # --- TAB 2: EDIT DATA ---
+    with tab2:
+        st.subheader("Manage Data")
+        st.info("💡 **Status Guide:** 🆕 = New unsaved row | ✅ = Saved in database.")
 
-            # Since Streamlit's "Add Row" button is fixed at the bottom,
-            # we use session_state to allow manual prepending if desired.
-            if "data_to_edit" not in st.session_state:
-                st.session_state.data_to_edit = display_df[["Date", "Weight"]].copy()
+        # 1. Update initialization to include a 'Status' column
+        if "data_to_edit" not in st.session_state:
+            df_to_edit = display_df[["Date", "Weight"]].copy()
+            df_to_edit["Status"] = "✅"  # Default status for existing rows
+            df_to_edit["Delete"] = False
+            st.session_state.data_to_edit = df_to_edit
 
-            col1, col2 = st.columns([1, 5])
-            if col1.button("➕ Add Row"):
-                # Get the most recent weight if data exists, otherwise default to 0.0
-                if not st.session_state.data_to_edit.empty:
-                    # iloc[0] is used because the table is sorted newest-to-oldest
-                    last_weight = float(st.session_state.data_to_edit.iloc[0]["Weight"])
-                else:
-                    last_weight = 0.0
+        col1, col2 = st.columns([1, 5])
 
-                new_empty = pd.DataFrame(
-                    [{"Date": datetime.today(), "Weight": last_weight}]
-                )
+        # 2. Update Add Row logic to flag the new row as "🆕"
+        if col1.button("➕ Add Row"):
+            if not st.session_state.data_to_edit.empty:
+                last_weight = float(st.session_state.data_to_edit.iloc[0]["Weight"])
+            else:
+                last_weight = 0.0
 
-                st.session_state.data_to_edit = pd.concat(
-                    [new_empty, st.session_state.data_to_edit], ignore_index=True
-                )
-                st.rerun()
-
-            updated_df = st.data_editor(
-                st.session_state.data_to_edit,
-                column_config={
-                    "Date": st.column_config.DateColumn("Date", required=True),
-                    "Weight": st.column_config.NumberColumn(
-                        "Weight (kg)", format="%.1f"
-                    ),
-                },
-                num_rows="dynamic",
-                hide_index=True,
-                key="bulk_editor",
+            new_empty = pd.DataFrame(
+                [
+                    {
+                        "Status": "🆕",  # <--- This flags the row as new
+                        "Date": datetime.today(),
+                        "Weight": last_weight,
+                        "Delete": False,
+                    }
+                ]
             )
 
-            if st.button("Save Changes", type="primary"):
-                try:
-                    updated_df = updated_df.dropna(subset=["Date"])
-                    updated_df["Date"] = pd.to_datetime(updated_df["Date"])
-                    # Force Descending Sort for GSheets storage
-                    updated_df = updated_df.sort_values(by="Date", ascending=False)
-                    updated_df["Date"] = updated_df["Date"].dt.strftime("%Y-%m-%d")
+            st.session_state.data_to_edit = pd.concat(
+                [new_empty, st.session_state.data_to_edit], ignore_index=True
+            )
+            st.rerun()
 
-                    conn.update(worksheet="Sheet1", data=updated_df)
-                    st.success("Database synchronized!")
-                    del (
-                        st.session_state.data_to_edit
-                    )  # Clear local state to fetch fresh from DB
-                    st.cache_data.clear()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Update failed: {e}")
+        # 3. Update Data Editor Configuration
+        updated_df = st.data_editor(
+            st.session_state.data_to_edit,
+            column_config={
+                "Status": st.column_config.TextColumn(
+                    "Status", disabled=True
+                ),  # Keep it read-only
+                "Date": st.column_config.DateColumn("Date", required=True),
+                "Weight": st.column_config.NumberColumn("Weight (kg)", format="%.1f"),
+                "Delete": st.column_config.CheckboxColumn("Delete?"),
+            },
+            num_rows="fixed",
+            hide_index=True,
+            key="bulk_editor",
+        )
 
-    else:
-        st.info("Please log your first entry to generate charts.")
+        # 4. Save Changes (Status and Delete columns are removed before saving)
+        if st.button("Save Changes", type="primary"):
+            try:
+                # Filter out deletions
+                rows_to_keep = updated_df[updated_df["Delete"] == False].copy()
+
+                # Cleanup
+                rows_to_keep = rows_to_keep.dropna(subset=["Date"])
+                rows_to_keep["Date"] = pd.to_datetime(rows_to_keep["Date"])
+                rows_to_keep = rows_to_keep.sort_values(by="Date", ascending=False)
+
+                # CRITICAL: Drop 'Status' and 'Delete' before updating GSheets
+                final_save_df = rows_to_keep.drop(columns=["Delete", "Status"])
+                final_save_df["Date"] = final_save_df["Date"].dt.strftime("%Y-%m-%d")
+
+                conn.update(worksheet="Sheet1", data=final_save_df)
+
+                st.success("Database synchronized!")
+                if "data_to_edit" in st.session_state:
+                    del st.session_state.data_to_edit
+                st.cache_data.clear()
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Update failed: {e}")
