@@ -102,10 +102,21 @@ if st.session_state.get("authentication_status"):
         # 2. Create the display version (Newest to Oldest)
         display_df = df.sort_values(by="Date", ascending=False).copy()
 
-        # 3. Weekly Stats
+        # 3. Weekly Stats Calculation
         weekly_df = (
-            df.resample("W-SUN", on="Date").mean(numeric_only=True).reset_index()
+            df.resample("W-SUN", on="Date")["Weight"].agg(["mean", "std"]).reset_index()
         )
+
+        # Calculate Increment (Difference between this week and previous week)
+        weekly_df["Increment"] = weekly_df["mean"].diff()
+
+        # Add Trend Visualization
+        def get_trend(val):
+            if pd.isna(val):
+                return "➖"
+            return "🔺" if val > 0 else "🔻"
+
+        weekly_df["Trend"] = weekly_df["Increment"].apply(get_trend)
 
         tab1, tab2, tab3 = st.tabs(["📈 Weight Plots", "📊 Data Tables", "⚙️ Edit Data"])
 
@@ -168,47 +179,48 @@ if st.session_state.get("authentication_status"):
         with tab2:
             st.title("Detailed Analytics")
 
-            col_a, col_b = st.columns(2)
+            # --- WEEKLY TABLE ---
+            st.subheader("📅 Weekly Summary")
+            # Sort newest first for the display
+            display_weekly = weekly_df.copy().sort_values(by="Date", ascending=False)
 
-            with col_a:
-                st.subheader("📅 Weekly Averages")
-                # Format the weekly data for display
-                display_weekly = weekly_df.copy().sort_values(
-                    by="Date", ascending=False
-                )
-                display_weekly["Date"] = display_weekly["Date"].dt.strftime("%Y-%m-%d")
+            st.dataframe(
+                display_weekly,
+                column_config={
+                    "Date": st.column_config.DateColumn(
+                        "Week Ending", format="DD/MM/YYYY"
+                    ),
+                    "mean": st.column_config.NumberColumn(
+                        "Weekly Mean (kg)", format="%.2f"
+                    ),
+                    "std": st.column_config.NumberColumn("Std Dev (±)", format="%.2f"),
+                    "Increment": st.column_config.NumberColumn(
+                        "Increment", format="%+.2f kg"
+                    ),
+                    "Trend": st.column_config.TextColumn("Trend", width="small"),
+                },
+                hide_index=True,
+                use_container_width=True,
+            )
 
-                st.dataframe(
-                    display_weekly,
-                    column_config={
-                        "Date": "Week Ending",
-                        "Weight": st.column_config.NumberColumn(
-                            "Avg Weight (kg)", format="%.2f"
-                        ),
-                    },
-                    hide_index=True,
-                    use_container_width=True,
-                )
+            st.divider()
 
-            with col_b:
-                st.subheader(f"🔄 {window}-Day Rolling Avg")
-                # Use the display_df which is already sorted newest -> oldest
-                st.dataframe(
-                    display_df[["Date", "Weight", "Rolling_Avg"]],
-                    column_config={
-                        "Date": st.column_config.DateColumn(
-                            "Date", format="DD/MM/YYYY"
-                        ),
-                        "Weight": st.column_config.NumberColumn(
-                            "Daily (kg)", format="%.1f"
-                        ),
-                        "Rolling_Avg": st.column_config.NumberColumn(
-                            "Rolling (kg)", format="%.2f"
-                        ),
-                    },
-                    hide_index=True,
-                    use_container_width=True,
-                )
+            # --- ROLLING AVERAGE TABLE ---
+            st.subheader(f"🔄 {window}-Day Rolling Log")
+            st.dataframe(
+                display_df[["Date", "Weight", "Rolling_Avg"]],
+                column_config={
+                    "Date": st.column_config.DateColumn("Date", format="DD/MM/YYYY"),
+                    "Weight": st.column_config.NumberColumn(
+                        "Daily Weight (kg)", format="%.1f"
+                    ),
+                    "Rolling_Avg": st.column_config.NumberColumn(
+                        "Rolling Avg (kg)", format="%.2f"
+                    ),
+                },
+                hide_index=True,
+                use_container_width=True,
+            )
 
     # --- TAB 3: EDIT DATA ---
     with tab3:
