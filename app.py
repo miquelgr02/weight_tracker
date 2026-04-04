@@ -91,114 +91,134 @@ if st.session_state.get("authentication_status"):
                 )
 
     # --- DATA PROCESSING & DASHBOARD ---
-    if not df.empty:
-        display_df = df[["Date", "Weight"]].copy()
-        # Calculations
-        display_df["Rolling_Avg"] = display_df["Weight"].rolling(window=window).mean()
-        weekly_df = (
-            display_df.resample("W-SUN", on="Date")
-            .mean(numeric_only=True)
-            .reset_index()
-        )
+    # --- TABS SETUP ---
+    tab1, tab2 = st.tabs(["📈 Dashboard", "⚙️ Edit Data"])
 
-        # Metrics Row
-        st.title("Weight Dashboard")
-        m1, m2, m3 = st.columns(3)
-        latest_weight = display_df.iloc[-1]["Weight"]
-        latest_rolling = display_df.iloc[-1]["Rolling_Avg"]
-        total_gained = latest_weight - display_df.iloc[0]["Weight"]
-
-        m1.metric("Current", f"{latest_weight:.1f} kg")
-        m2.metric(
-            f"{window}-Day Avg",
-            f"{latest_rolling:.2f} kg" if pd.notna(latest_rolling) else "N/A",
-        )
-        m3.metric("Total Progress", f"{total_gained:+.1f} kg")
-
-        # --- CHART 1: DAILY VS ROLLING ---
-        st.subheader("Weight Trend")
-        fig_trend = go.Figure()
-
-        # Daily Weight (Faint dots)
-        fig_trend.add_trace(
-            go.Scatter(
-                x=display_df["Date"],
-                y=display_df["Weight"],
-                mode="markers",
-                name="Daily Weight",
-                marker=dict(color="rgba(255, 255, 255, 0.2)", size=6),
-                hovertemplate="Date: %{x}<br>Weight: %{y}kg<extra></extra>",
+    # --- TAB 1: DASHBOARD ---
+    with tab1:
+        if not df.empty:
+            display_df = df[["Date", "Weight"]].copy()
+            # Calculations
+            display_df["Rolling_Avg"] = (
+                display_df["Weight"].rolling(window=window).mean()
             )
-        )
-
-        # Rolling Average (Thick Line)
-        fig_trend.add_trace(
-            go.Scatter(
-                x=display_df["Date"],
-                y=display_df["Rolling_Avg"],
-                mode="lines",
-                name=f"{window}-Day Avg",
-                line=dict(color="#00d4ff", width=4),
-                hovertemplate="Date: %{x}<br>Avg: %{y:.2f}kg<extra></extra>",
+            weekly_df = (
+                display_df.resample("W-SUN", on="Date")
+                .mean(numeric_only=True)
+                .reset_index()
             )
-        )
 
-        fig_trend.update_layout(
-            template="plotly_dark",
-            height=400,
-            margin=dict(l=10, r=10, t=10, b=10),
-            legend=dict(
-                orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
-            ),
-            xaxis=dict(showgrid=False),
-            yaxis=dict(showgrid=False, title="Weight (kg)"),
-        )
-        st.plotly_chart(fig_trend, use_container_width=True)
+            # Metrics Row
+            st.title("Weight Dashboard")
+            m1, m2, m3 = st.columns(3)
+            latest_weight = display_df.iloc[-1]["Weight"]
+            latest_rolling = display_df.iloc[-1]["Rolling_Avg"]
+            total_gained = latest_weight - display_df.iloc[0]["Weight"]
 
-        # --- CHART 2: WEEKLY BLOCKS ---
-        st.subheader("Weekly Block Averages")
-        fig_weekly = px.bar(
-            weekly_df,
-            x="Date",
-            y="Weight",
-            color_discrete_sequence=["#ff4b4b"],
-            text_auto=".1f",
-        )
-
-        fig_weekly.update_layout(
-            template="plotly_dark",
-            height=300,
-            xaxis_title=None,
-            yaxis_title="Avg Weight",
-            xaxis=dict(showgrid=False),
-            yaxis=dict(showgrid=False),
-            margin=dict(l=10, r=10, t=10, b=10),
-        )
-        st.plotly_chart(fig_weekly, use_container_width=True)
-
-        # --- CALORIE ADVICE ---
-        if len(display_df) >= 14:
-            # Note: This checks the last 14 logged entries, not strictly the last 14 calendar days.
-            diff = (
-                display_df.iloc[-7:]["Weight"].mean()
-                - display_df.iloc[-14:-7]["Weight"].mean()
+            m1.metric("Current", f"{latest_weight:.1f} kg")
+            m2.metric(
+                f"{window}-Day Avg",
+                f"{latest_rolling:.2f} kg" if pd.notna(latest_rolling) else "N/A",
             )
-            st.divider()
-            if diff > 0.2:
-                st.warning(
-                    f"⚠️ **Eat less.** Weekly gain: {diff:.2f}kg. Slow down to minimize fat gain."
-                )
-            elif diff < 0.1:
-                st.success(
-                    f"🍴 **Eat more!** Weekly gain: {diff:.2f}kg. Increase calories for better growth."
-                )
-            else:
-                st.info(
-                    f"✅ **Perfect.** Weekly gain: {diff:.2f}kg. Maintain current calories."
-                )
+            m3.metric("Total Progress", f"{total_gained:+.1f} kg")
 
-    else:
-        st.info("Please log your first entry to generate charts.")
+            # --- CHART 1: DAILY VS ROLLING ---
+            st.subheader("Weight Trend")
+            fig_trend = go.Figure()
+            fig_trend.add_trace(
+                go.Scatter(
+                    x=display_df["Date"],
+                    y=display_df["Weight"],
+                    mode="markers",
+                    name="Daily Weight",
+                    marker=dict(color="rgba(255, 255, 255, 0.2)", size=6),
+                )
+            )
+            fig_trend.add_trace(
+                go.Scatter(
+                    x=display_df["Date"],
+                    y=display_df["Rolling_Avg"],
+                    mode="lines",
+                    name=f"{window}-Day Avg",
+                    line=dict(color="#00d4ff", width=4),
+                )
+            )
+            fig_trend.update_layout(
+                template="plotly_dark", height=400, margin=dict(l=10, r=10, t=10, b=10)
+            )
+            st.plotly_chart(fig_trend, use_container_width=True)
 
-elif st.session_state.get("authentication_status") is False:
-    st.error("Invalid credentials.")
+            # --- CHART 2: WEEKLY BLOCKS ---
+            st.subheader("Weekly Block Averages")
+            fig_weekly = px.bar(
+                weekly_df,
+                x="Date",
+                y="Weight",
+                color_discrete_sequence=["#ff4b4b"],
+                text_auto=".1f",
+            )
+            fig_weekly.update_layout(
+                template="plotly_dark", height=300, margin=dict(l=10, r=10, t=10, b=10)
+            )
+            st.plotly_chart(fig_weekly, use_container_width=True)
+
+            # --- CALORIE ADVICE ---
+            if len(display_df) >= 14:
+                diff = (
+                    display_df.iloc[-7:]["Weight"].mean()
+                    - display_df.iloc[-14:-7]["Weight"].mean()
+                )
+                st.divider()
+                if diff > 0.2:
+                    st.warning(
+                        f"⚠️ **Eat less.** Weekly gain: {diff:.2f}kg. Slow down to minimize fat gain."
+                    )
+                elif diff < 0.1:
+                    st.success(
+                        f"🍴 **Eat more!** Weekly gain: {diff:.2f}kg. Increase calories for better growth."
+                    )
+                else:
+                    st.info(
+                        f"✅ **Perfect.** Weekly gain: {diff:.2f}kg. Maintain current calories."
+                    )
+        else:
+            st.info("Please log your first entry to generate charts.")
+
+    # --- TAB 2: EDIT DATA ---
+    with tab2:
+        st.subheader("Manage Historical Data")
+        st.write("Edit cells directly in the table below and click 'Save Changes'.")
+
+        # Sort data descending so newest is on top for easier editing
+        edit_df = df.sort_values(by="Date", ascending=False).copy()
+
+        # Display the data editor
+        updated_df = st.data_editor(
+            edit_df,
+            column_config={
+                "Date": st.column_config.DateColumn("Date", required=True),
+                "Weight": st.column_config.NumberColumn(
+                    "Weight (kg)", format="%.1f", step=0.1
+                ),
+            },
+            disabled=[
+                "Date"
+            ],  # Best to keep Date disabled to prevent primary key issues, or enable if needed
+            num_rows="dynamic",  # Allows deleting rows
+            hide_index=True,
+            key="data_editor",
+        )
+
+        if st.button("Save Changes", type="primary"):
+            # Format date back to string for GSheets
+            updated_df["Date"] = pd.to_datetime(updated_df["Date"]).dt.strftime(
+                "%Y-%m-%d"
+            )
+
+            try:
+                conn.update(worksheet="Sheet1", data=updated_df)
+                st.success("Database updated!")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error updating Google Sheets: {e}")
