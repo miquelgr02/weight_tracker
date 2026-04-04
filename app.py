@@ -33,7 +33,7 @@ if st.session_state.get("authentication_status"):
         data = conn.read(worksheet="Sheet1")
         data = data.dropna(how="all")
         data["Date"] = pd.to_datetime(data["Date"])
-        return data.sort_values(by="Date")
+        return data.sort_values(by="Date", ascending=False)
 
     df = fetch_data()
 
@@ -53,42 +53,43 @@ if st.session_state.get("authentication_status"):
 
         if submit_button:
             try:
-                raw_data = conn.read(
-                    worksheet="Sheet1", ttl=0
-                )  # ttl=0 bypasses all cache
+                # 1. Fetch fresh data
+                raw_data = conn.read(worksheet="Sheet1", ttl=0)
+                current_gsheet_df = (
+                    raw_data.dropna(how="all")
+                    if raw_data is not None
+                    else pd.DataFrame(columns=["Date", "Weight"])
+                )
 
-                if raw_data is not None and not raw_data.empty:
-                    current_gsheet_df = raw_data.dropna(how="all")
-                else:
-                    current_gsheet_df = pd.DataFrame(columns=["Date", "Weight"])
-            except Exception as e:
-                st.error(f"Could not connect to Google Sheets: {e}")
-                st.stop()
+                # 2. Create new entry as a DataFrame
+                new_row = pd.DataFrame(
+                    [
+                        {
+                            "Date": entry_date.strftime("%Y-%m-%d"),
+                            "Weight": float(entry_weight),
+                        }
+                    ]
+                )
 
-            new_entry = {
-                "Date": entry_date.strftime("%Y-%m-%d"),
-                "Weight": float(entry_weight),
-            }
+                # 3. Combine, handle types, and drop duplicates
+                final_df = pd.concat([current_gsheet_df, new_row], ignore_index=True)
+                final_df["Date"] = pd.to_datetime(final_df["Date"])
+                final_df = final_df.drop_duplicates(subset=["Date"], keep="last")
 
-            all_records = current_gsheet_df.to_dict(orient="records")
-            all_records.append(new_entry)
+                # 4. CRITICAL: Sort Newest to Oldest before saving
+                final_df = final_df.sort_values(by="Date", ascending=False)
 
-            final_df = pd.DataFrame(all_records)
+                # 5. Convert date back to string for GSheets storage
+                final_df["Date"] = final_df["Date"].dt.strftime("%Y-%m-%d")
 
-            final_df = final_df[["Date", "Weight"]]
-            final_df["Date"] = pd.to_datetime(final_df["Date"]).dt.strftime("%Y-%m-%d")
-            final_df = final_df.drop_duplicates(subset=["Date"], keep="last")
-            final_df = final_df.sort_values(by="Date")
-
-            if len(final_df) >= len(current_gsheet_df):
+                # 6. Save (Safety guard removed so you can delete if needed elsewhere)
                 conn.update(worksheet="Sheet1", data=final_df)
                 st.success("Weight logged successfully!")
                 st.cache_data.clear()
                 st.rerun()
-            else:
-                st.error(
-                    "Data validation failed. The app tried to save fewer rows than currently exist. Operation aborted to protect your data."
-                )
+
+            except Exception as e:
+                st.error(f"Error: {e}")
 
     # --- DATA PROCESSING & DASHBOARD ---
     # --- TABS SETUP ---
@@ -111,9 +112,13 @@ if st.session_state.get("authentication_status"):
             # Metrics Row
             st.title("Weight Dashboard")
             m1, m2, m3 = st.columns(3)
-            latest_weight = display_df.iloc[-1]["Weight"]
-            latest_rolling = display_df.iloc[-1]["Rolling_Avg"]
-            total_gained = latest_weight - display_df.iloc[0]["Weight"]
+
+            # index 0 is now the LATEST entry
+            latest_weight = display_df.iloc[0]["Weight"]
+            latest_rolling = display_df.iloc[0]["Rolling_Avg"]
+
+            # Total progress is Latest (index 0) minus Oldest (last index -1)
+            total_gained = latest_weight - display_df.iloc[-1]["Weight"]
 
             m1.metric("Current", f"{latest_weight:.1f} kg")
             m2.metric(
@@ -185,40 +190,41 @@ if st.session_state.get("authentication_status"):
             st.info("Please log your first entry to generate charts.")
 
     # --- TAB 2: EDIT DATA ---
+    # --- TAB 2: EDIT DATA ---
     with tab2:
-        st.subheader("Manage Historical Data")
-        st.write("Edit cells directly in the table below and click 'Save Changes'.")
+        st.subheader("Manage Data")
+        st.info(
+            "💡 **To Delete:** Select the row (click the box on the far left) and hit 'Delete' on your keyboard."
+        )
 
-        # Sort data descending so newest is on top for easier editing
+        # Ensure we are looking at the newest data at the top
         edit_df = df.sort_values(by="Date", ascending=False).copy()
 
-        # Display the data editor
         updated_df = st.data_editor(
             edit_df,
             column_config={
                 "Date": st.column_config.DateColumn("Date", required=True),
-                "Weight": st.column_config.NumberColumn(
-                    "Weight (kg)", format="%.1f", step=0.1
-                ),
+                "Weight": st.column_config.NumberColumn("Weight (kg)", format="%.1f"),
             },
-            disabled=[
-                "Date"
-            ],  # Best to keep Date disabled to prevent primary key issues, or enable if needed
-            num_rows="dynamic",  # Allows deleting rows
+            num_rows="dynamic",  # Allows adding/deleting rows
             hide_index=True,
-            key="data_editor",
+            key="bulk_editor",
         )
 
         if st.button("Save Changes", type="primary"):
-            # Format date back to string for GSheets
-            updated_df["Date"] = pd.to_datetime(updated_df["Date"]).dt.strftime(
-                "%Y-%m-%d"
-            )
-
             try:
+                # 1. Clean and Sort
+                updated_df = updated_df.dropna(subset=["Date", "Weight"])
+                updated_df["Date"] = pd.to_datetime(updated_df["Date"])
+                updated_df = updated_df.sort_values(by="Date", ascending=False)
+
+                # 2. Format for GSheets
+                updated_df["Date"] = updated_df["Date"].dt.strftime("%Y-%m-%d")
+
+                # 3. Update
                 conn.update(worksheet="Sheet1", data=updated_df)
-                st.success("Database updated!")
+                st.success("Database synchronized!")
                 st.cache_data.clear()
                 st.rerun()
             except Exception as e:
-                st.error(f"Error updating Google Sheets: {e}")
+                st.error(f"Update failed: {e}")
