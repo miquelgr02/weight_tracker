@@ -37,16 +37,28 @@ if st.session_state.get("authentication_status"):
     df = fetch_data()
 
     # --- SIDEBAR CONTROLS ---
+    # --- SIDEBAR CONTROLS ---
     with st.sidebar:
         st.header("Settings")
         window = st.slider("Rolling Average Window (Days)", 1, 30, 7)
 
         st.divider()
         st.header("Log New Entry")
+
+        if not df.empty:
+            last_recorded_weight = float(df.iloc[-1]["Weight"])
+        else:
+            last_recorded_weight = 70.0  # Fallback if the sheet is empty
+
         with st.form("weight_form", clear_on_submit=True):
             entry_date = st.date_input("Date", value=datetime.today())
+
             entry_weight = st.number_input(
-                "Weight (kg)", min_value=30.0, max_value=200.0, step=0.1
+                "Weight (kg)",
+                min_value=30.0,
+                max_value=200.0,
+                value=last_recorded_weight,
+                step=0.1,
             )
             submit_button = st.form_submit_button("Submit Entry")
 
