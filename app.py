@@ -118,6 +118,12 @@ if st.session_state.get("authentication_status"):
 
         weekly_df["Trend"] = weekly_df["Increment"].apply(get_trend)
 
+        weekly_df["Mean ± Std"] = (
+            weekly_df["mean"].map("{:.1f}".format)
+            + " ± "
+            + weekly_df["std"].fillna(0).map("{:.1f}".format)
+        )
+
         tab1, tab2, tab3 = st.tabs(["📈 Weight Plots", "📊 Data Tables", "⚙️ Edit Data"])
 
         # --- TAB 1: DASHBOARD ---
@@ -166,9 +172,9 @@ if st.session_state.get("authentication_status"):
             fig_weekly = px.bar(
                 weekly_df,
                 x="Date",
-                y="mean",  # Changed from "Weight" to "mean"
+                y="mean",
                 color_discrete_sequence=["#ff4b4b"],
-                labels={"mean": "Weekly Avg (kg)"},  # Optional: cleaner label
+                labels={"mean": "Weekly Avg (kg)"},
                 text_auto=".1f",
             )
             fig_weekly.update_layout(
@@ -177,13 +183,13 @@ if st.session_state.get("authentication_status"):
             st.plotly_chart(fig_weekly, use_container_width=True)
 
         # --- TAB 2: DATA TABLES ---
+        # --- TAB 2: DATA TABLES ---
         with tab2:
             st.title("Detailed Analytics")
 
             # --- WEEKLY TABLE ---
             st.subheader("📅 Weekly Summary")
 
-            # Sort newest first for the display
             display_weekly = weekly_df.copy().sort_values(by="Date", ascending=False)
 
             st.dataframe(
@@ -192,16 +198,15 @@ if st.session_state.get("authentication_status"):
                     "Date": st.column_config.DateColumn(
                         "Week Ending", format="DD/MM/YYYY"
                     ),
-                    "mean": st.column_config.NumberColumn(
-                        "Weekly Mean (kg)", format="%.2f"
+                    "Mean ± Std": st.column_config.TextColumn(
+                        "Weekly Mean", width="medium"
                     ),
-                    "std": st.column_config.NumberColumn(
-                        "Std Dev (±)", format="%.2f"
-                    ),  # Positioned next to mean
                     "Increment": st.column_config.NumberColumn(
                         "Increment", format="%+.2f kg"
                     ),
                     "Trend": st.column_config.TextColumn("Trend", width="small"),
+                    "mean": None,
+                    "std": None,
                 },
                 hide_index=True,
                 use_container_width=True,
