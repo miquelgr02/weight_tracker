@@ -21,11 +21,8 @@ authenticator = stauth.Authenticate(
 )
 authenticator.login()
 
-# Using .get() prevents KeyError if the session state hasn't initialized properly
 if st.session_state.get("authentication_status"):
     authenticator.logout("Logout", "sidebar")
-
-    # Initialize Connection
     conn = st.connection("gsheets", type=GSheetsConnection)
 
     @st.cache_data(ttl=600)
@@ -33,8 +30,10 @@ if st.session_state.get("authentication_status"):
         data = conn.read(worksheet="Sheet1")
         data = data.dropna(how="all")
         data["Date"] = pd.to_datetime(data["Date"])
-        return data.sort_values(by="Date", ascending=False)
+        # We return OLDEST first here so rolling averages calculate correctly
+        return data.sort_values(by="Date", ascending=True)
 
+    # Base data (Oldest to Newest)
     df = fetch_data()
 
     # --- SIDEBAR CONTROLS ---
@@ -53,15 +52,13 @@ if st.session_state.get("authentication_status"):
 
         if submit_button:
             try:
-                # 1. Fetch fresh data
                 raw_data = conn.read(worksheet="Sheet1", ttl=0)
-                current_gsheet_df = (
+                current_df = (
                     raw_data.dropna(how="all")
                     if raw_data is not None
                     else pd.DataFrame(columns=["Date", "Weight"])
                 )
 
-                # 2. Create new entry as a DataFrame
                 new_row = pd.DataFrame(
                     [
                         {
@@ -71,53 +68,43 @@ if st.session_state.get("authentication_status"):
                     ]
                 )
 
-                # 3. Combine, handle types, and drop duplicates
-                final_df = pd.concat([current_gsheet_df, new_row], ignore_index=True)
+                # Combine and sort DESCENDING so the Google Sheet itself has newest on top
+                final_df = pd.concat([current_df, new_row], ignore_index=True)
                 final_df["Date"] = pd.to_datetime(final_df["Date"])
                 final_df = final_df.drop_duplicates(subset=["Date"], keep="last")
-
-                # 4. CRITICAL: Sort Newest to Oldest before saving
                 final_df = final_df.sort_values(by="Date", ascending=False)
-
-                # 5. Convert date back to string for GSheets storage
                 final_df["Date"] = final_df["Date"].dt.strftime("%Y-%m-%d")
 
-                # 6. Save (Safety guard removed so you can delete if needed elsewhere)
                 conn.update(worksheet="Sheet1", data=final_df)
-                st.success("Weight logged successfully!")
+                st.success("Weight logged!")
                 st.cache_data.clear()
                 st.rerun()
-
             except Exception as e:
                 st.error(f"Error: {e}")
 
-    # --- DATA PROCESSING & DASHBOARD ---
-    # --- TABS SETUP ---
-    tab1, tab2 = st.tabs(["📈 Dashboard", "⚙️ Edit Data"])
+    # --- DATA PROCESSING ---
+    if not df.empty:
+        # 1. Calculate Rolling Avg on Ascending data (Correct Math)
+        df["Rolling_Avg"] = df["Weight"].rolling(window=window).mean()
 
-    # --- TAB 1: DASHBOARD ---
-    with tab1:
-        if not df.empty:
-            display_df = df[["Date", "Weight"]].copy()
-            # Calculations
-            display_df["Rolling_Avg"] = (
-                display_df["Weight"].rolling(window=window).mean()
-            )
-            weekly_df = (
-                display_df.resample("W-SUN", on="Date")
-                .mean(numeric_only=True)
-                .reset_index()
-            )
+        # 2. Create the display version (Newest to Oldest)
+        display_df = df.sort_values(by="Date", ascending=False).copy()
 
-            # Metrics Row
+        # 3. Weekly Stats
+        weekly_df = (
+            df.resample("W-SUN", on="Date").mean(numeric_only=True).reset_index()
+        )
+
+        tab1, tab2 = st.tabs(["📈 Dashboard", "⚙️ Edit Data"])
+
+        # --- TAB 1: DASHBOARD ---
+        with tab1:
             st.title("Weight Dashboard")
             m1, m2, m3 = st.columns(3)
 
-            # index 0 is now the LATEST entry
+            # Latest values are now at index 0 of display_df
             latest_weight = display_df.iloc[0]["Weight"]
             latest_rolling = display_df.iloc[0]["Rolling_Avg"]
-
-            # Total progress is Latest (index 0) minus Oldest (last index -1)
             total_gained = latest_weight - display_df.iloc[-1]["Weight"]
 
             m1.metric("Current", f"{latest_weight:.1f} kg")
@@ -127,13 +114,12 @@ if st.session_state.get("authentication_status"):
             )
             m3.metric("Total Progress", f"{total_gained:+.1f} kg")
 
-            # --- CHART 1: DAILY VS ROLLING ---
-            st.subheader("Weight Trend")
+            # Chart (Plotly needs chronological order to draw lines correctly)
             fig_trend = go.Figure()
             fig_trend.add_trace(
                 go.Scatter(
-                    x=display_df["Date"],
-                    y=display_df["Weight"],
+                    x=df["Date"],
+                    y=df["Weight"],
                     mode="markers",
                     name="Daily Weight",
                     marker=dict(color="rgba(255, 255, 255, 0.2)", size=6),
@@ -141,8 +127,8 @@ if st.session_state.get("authentication_status"):
             )
             fig_trend.add_trace(
                 go.Scatter(
-                    x=display_df["Date"],
-                    y=display_df["Rolling_Avg"],
+                    x=df["Date"],
+                    y=df["Rolling_Avg"],
                     mode="lines",
                     name=f"{window}-Day Avg",
                     line=dict(color="#00d4ff", width=4),
@@ -153,8 +139,7 @@ if st.session_state.get("authentication_status"):
             )
             st.plotly_chart(fig_trend, use_container_width=True)
 
-            # --- CHART 2: WEEKLY BLOCKS ---
-            st.subheader("Weekly Block Averages")
+            # Weekly Chart
             fig_weekly = px.bar(
                 weekly_df,
                 x="Date",
@@ -167,64 +152,63 @@ if st.session_state.get("authentication_status"):
             )
             st.plotly_chart(fig_weekly, use_container_width=True)
 
-            # --- CALORIE ADVICE ---
-            if len(display_df) >= 14:
-                diff = (
-                    display_df.iloc[-7:]["Weight"].mean()
-                    - display_df.iloc[-14:-7]["Weight"].mean()
-                )
-                st.divider()
-                if diff > 0.2:
-                    st.warning(
-                        f"⚠️ **Eat less.** Weekly gain: {diff:.2f}kg. Slow down to minimize fat gain."
-                    )
-                elif diff < 0.1:
-                    st.success(
-                        f"🍴 **Eat more!** Weekly gain: {diff:.2f}kg. Increase calories for better growth."
-                    )
+        # --- TAB 2: EDIT DATA ---
+        with tab2:
+            st.subheader("Manage Data")
+
+            # Since Streamlit's "Add Row" button is fixed at the bottom,
+            # we use session_state to allow manual prepending if desired.
+            if "data_to_edit" not in st.session_state:
+                st.session_state.data_to_edit = display_df[["Date", "Weight"]].copy()
+
+            col1, col2 = st.columns([1, 5])
+            if col1.button("➕ Add Row"):
+                # Get the most recent weight if data exists, otherwise default to 0.0
+                if not st.session_state.data_to_edit.empty:
+                    # iloc[0] is used because the table is sorted newest-to-oldest
+                    last_weight = float(st.session_state.data_to_edit.iloc[0]["Weight"])
                 else:
-                    st.info(
-                        f"✅ **Perfect.** Weekly gain: {diff:.2f}kg. Maintain current calories."
-                    )
-        else:
-            st.info("Please log your first entry to generate charts.")
+                    last_weight = 0.0
 
-    # --- TAB 2: EDIT DATA ---
-    # --- TAB 2: EDIT DATA ---
-    with tab2:
-        st.subheader("Manage Data")
-        st.info(
-            "💡 **To Delete:** Select the row (click the box on the far left) and hit 'Delete' on your keyboard."
-        )
+                new_empty = pd.DataFrame(
+                    [{"Date": datetime.today(), "Weight": last_weight}]
+                )
 
-        # Ensure we are looking at the newest data at the top
-        edit_df = df.sort_values(by="Date", ascending=False).copy()
-
-        updated_df = st.data_editor(
-            edit_df,
-            column_config={
-                "Date": st.column_config.DateColumn("Date", required=True),
-                "Weight": st.column_config.NumberColumn("Weight (kg)", format="%.1f"),
-            },
-            num_rows="dynamic",  # Allows adding/deleting rows
-            hide_index=True,
-            key="bulk_editor",
-        )
-
-        if st.button("Save Changes", type="primary"):
-            try:
-                # 1. Clean and Sort
-                updated_df = updated_df.dropna(subset=["Date", "Weight"])
-                updated_df["Date"] = pd.to_datetime(updated_df["Date"])
-                updated_df = updated_df.sort_values(by="Date", ascending=False)
-
-                # 2. Format for GSheets
-                updated_df["Date"] = updated_df["Date"].dt.strftime("%Y-%m-%d")
-
-                # 3. Update
-                conn.update(worksheet="Sheet1", data=updated_df)
-                st.success("Database synchronized!")
-                st.cache_data.clear()
+                st.session_state.data_to_edit = pd.concat(
+                    [new_empty, st.session_state.data_to_edit], ignore_index=True
+                )
                 st.rerun()
-            except Exception as e:
-                st.error(f"Update failed: {e}")
+
+            updated_df = st.data_editor(
+                st.session_state.data_to_edit,
+                column_config={
+                    "Date": st.column_config.DateColumn("Date", required=True),
+                    "Weight": st.column_config.NumberColumn(
+                        "Weight (kg)", format="%.1f"
+                    ),
+                },
+                num_rows="dynamic",
+                hide_index=True,
+                key="bulk_editor",
+            )
+
+            if st.button("Save Changes", type="primary"):
+                try:
+                    updated_df = updated_df.dropna(subset=["Date"])
+                    updated_df["Date"] = pd.to_datetime(updated_df["Date"])
+                    # Force Descending Sort for GSheets storage
+                    updated_df = updated_df.sort_values(by="Date", ascending=False)
+                    updated_df["Date"] = updated_df["Date"].dt.strftime("%Y-%m-%d")
+
+                    conn.update(worksheet="Sheet1", data=updated_df)
+                    st.success("Database synchronized!")
+                    del (
+                        st.session_state.data_to_edit
+                    )  # Clear local state to fetch fresh from DB
+                    st.cache_data.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Update failed: {e}")
+
+    else:
+        st.info("Please log your first entry to generate charts.")
