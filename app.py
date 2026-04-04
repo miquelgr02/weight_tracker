@@ -152,22 +152,28 @@ if st.session_state.get("authentication_status"):
             )
             st.plotly_chart(fig_weekly, use_container_width=True)
 
-        # --- TAB 2: EDIT DATA ---
+    # --- TAB 2: EDIT DATA ---
     # --- TAB 2: EDIT DATA ---
     with tab2:
         st.subheader("Manage Data")
-        st.info("💡 **Status Guide:** 🆕 = New unsaved row | ✅ = Saved in database.")
+        st.info(
+            "💡 **Status Guide:** 🔴 Unsynced = New entry | 🟢 Synced = Saved in Google Sheets."
+        )
 
-        # 1. Update initialization to include a 'Status' column
+        # 1. Initialize session state with colored status
         if "data_to_edit" not in st.session_state:
             df_to_edit = display_df[["Date", "Weight"]].copy()
-            df_to_edit["Status"] = "✅"  # Default status for existing rows
+            df_to_edit["Status"] = "🟢 Synced"  # Green for existing data
             df_to_edit["Delete"] = False
-            st.session_state.data_to_edit = df_to_edit
+
+            # Ensure column order: Status on the left
+            st.session_state.data_to_edit = df_to_edit[
+                ["Status", "Date", "Weight", "Delete"]
+            ]
 
         col1, col2 = st.columns([1, 5])
 
-        # 2. Update Add Row logic to flag the new row as "🆕"
+        # 2. Add Row Logic (🔴 Unsynced for new rows)
         if col1.button("➕ Add Row"):
             if not st.session_state.data_to_edit.empty:
                 last_weight = float(st.session_state.data_to_edit.iloc[0]["Weight"])
@@ -177,7 +183,7 @@ if st.session_state.get("authentication_status"):
             new_empty = pd.DataFrame(
                 [
                     {
-                        "Status": "🆕",  # <--- This flags the row as new
+                        "Status": "🔴 Unsynced",  # Red for new data
                         "Date": datetime.today(),
                         "Weight": last_weight,
                         "Delete": False,
@@ -190,13 +196,13 @@ if st.session_state.get("authentication_status"):
             )
             st.rerun()
 
-        # 3. Update Data Editor Configuration
+        # 3. Data Editor Configuration
         updated_df = st.data_editor(
             st.session_state.data_to_edit,
             column_config={
                 "Status": st.column_config.TextColumn(
-                    "Status", disabled=True
-                ),  # Keep it read-only
+                    "Status", disabled=True, width="small"
+                ),
                 "Date": st.column_config.DateColumn("Date", required=True),
                 "Weight": st.column_config.NumberColumn("Weight (kg)", format="%.1f"),
                 "Delete": st.column_config.CheckboxColumn("Delete?"),
@@ -206,18 +212,18 @@ if st.session_state.get("authentication_status"):
             key="bulk_editor",
         )
 
-        # 4. Save Changes (Status and Delete columns are removed before saving)
+        # 4. Save Changes
         if st.button("Save Changes", type="primary"):
             try:
                 # Filter out deletions
                 rows_to_keep = updated_df[updated_df["Delete"] == False].copy()
 
-                # Cleanup
+                # Cleanup and Sort
                 rows_to_keep = rows_to_keep.dropna(subset=["Date"])
                 rows_to_keep["Date"] = pd.to_datetime(rows_to_keep["Date"])
                 rows_to_keep = rows_to_keep.sort_values(by="Date", ascending=False)
 
-                # CRITICAL: Drop 'Status' and 'Delete' before updating GSheets
+                # Drop the UI columns (Status and Delete) before saving
                 final_save_df = rows_to_keep.drop(columns=["Delete", "Status"])
                 final_save_df["Date"] = final_save_df["Date"].dt.strftime("%Y-%m-%d")
 
