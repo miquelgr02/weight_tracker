@@ -172,13 +172,17 @@ if st.session_state.get("authentication_status"):
             st.plotly_chart(fig_trend, use_container_width=True)
 
             # Weekly Chart
-            fig_weekly = px.bar(
+            fig_weekly = px.line(
                 weekly_df,
                 x="Date",
                 y="mean",
+                error_y="std",  # Uses the standard deviation column for error bars
+                markers=True,  # Adds dots to the data points on the line
                 color_discrete_sequence=["#ff4b4b"],
                 labels={"mean": "Weekly Avg (kg)"},
-                text_auto=".1f",
+            )
+            fig_weekly.update_traces(
+                error_y=dict(color="#c46b66", thickness=1.5, width=4)
             )
             fig_weekly.update_layout(
                 template="plotly_dark", height=300, margin=dict(l=10, r=10, t=10, b=10)
