@@ -107,11 +107,11 @@ if st.session_state.get("authentication_status"):
             df.resample("W-SUN", on="Date").mean(numeric_only=True).reset_index()
         )
 
-        tab1, tab2 = st.tabs(["📈 Dashboard", "⚙️ Edit Data"])
+        tab1, tab2, tab3 = st.tabs(["📈 Weight Plots", "📊 Data Tables", "⚙️ Edit Data"])
 
         # --- TAB 1: DASHBOARD ---
         with tab1:
-            st.title("Weight Dashboard")
+            st.title("Weight Plots")
             m1, m2, m3 = st.columns(3)
 
             # Latest values are now at index 0 of display_df
@@ -164,9 +164,54 @@ if st.session_state.get("authentication_status"):
             )
             st.plotly_chart(fig_weekly, use_container_width=True)
 
-    # --- TAB 2: EDIT DATA ---
-    # --- TAB 2: EDIT DATA ---
-    with tab2:
+        # --- TAB 2: DATA TABLES ---
+        with tab2:
+            st.title("Detailed Analytics")
+
+            col_a, col_b = st.columns(2)
+
+            with col_a:
+                st.subheader("📅 Weekly Averages")
+                # Format the weekly data for display
+                display_weekly = weekly_df.copy().sort_values(
+                    by="Date", ascending=False
+                )
+                display_weekly["Date"] = display_weekly["Date"].dt.strftime("%Y-%m-%d")
+
+                st.dataframe(
+                    display_weekly,
+                    column_config={
+                        "Date": "Week Ending",
+                        "Weight": st.column_config.NumberColumn(
+                            "Avg Weight (kg)", format="%.2f"
+                        ),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+            with col_b:
+                st.subheader(f"🔄 {window}-Day Rolling Avg")
+                # Use the display_df which is already sorted newest -> oldest
+                st.dataframe(
+                    display_df[["Date", "Weight", "Rolling_Avg"]],
+                    column_config={
+                        "Date": st.column_config.DateColumn(
+                            "Date", format="DD/MM/YYYY"
+                        ),
+                        "Weight": st.column_config.NumberColumn(
+                            "Daily (kg)", format="%.1f"
+                        ),
+                        "Rolling_Avg": st.column_config.NumberColumn(
+                            "Rolling (kg)", format="%.2f"
+                        ),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+    # --- TAB 3: EDIT DATA ---
+    with tab3:
         st.subheader("Manage Data")
         st.info(
             "💡 **Status Guide:** 🔴 Unsynced = New entry | 🟢 Synced = Saved in Google Sheets."
