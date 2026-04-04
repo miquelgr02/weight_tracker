@@ -166,8 +166,9 @@ if st.session_state.get("authentication_status"):
             fig_weekly = px.bar(
                 weekly_df,
                 x="Date",
-                y="Weight",
+                y="mean",  # Changed from "Weight" to "mean"
                 color_discrete_sequence=["#ff4b4b"],
+                labels={"mean": "Weekly Avg (kg)"},  # Optional: cleaner label
                 text_auto=".1f",
             )
             fig_weekly.update_layout(
@@ -181,6 +182,7 @@ if st.session_state.get("authentication_status"):
 
             # --- WEEKLY TABLE ---
             st.subheader("📅 Weekly Summary")
+
             # Sort newest first for the display
             display_weekly = weekly_df.copy().sort_values(by="Date", ascending=False)
 
@@ -193,7 +195,9 @@ if st.session_state.get("authentication_status"):
                     "mean": st.column_config.NumberColumn(
                         "Weekly Mean (kg)", format="%.2f"
                     ),
-                    "std": st.column_config.NumberColumn("Std Dev (±)", format="%.2f"),
+                    "std": st.column_config.NumberColumn(
+                        "Std Dev (±)", format="%.2f"
+                    ),  # Positioned next to mean
                     "Increment": st.column_config.NumberColumn(
                         "Increment", format="%+.2f kg"
                     ),
@@ -203,6 +207,8 @@ if st.session_state.get("authentication_status"):
                 use_container_width=True,
             )
 
+            # Vertical spacing
+            st.markdown("<br>", unsafe_allow_html=True)
             st.divider()
 
             # --- ROLLING AVERAGE TABLE ---
