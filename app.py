@@ -107,6 +107,9 @@ if st.session_state.get("authentication_status"):
             df.resample("W-SUN", on="Date")["Weight"].agg(["mean", "std"]).reset_index()
         )
 
+        # Change Date from "Week End" (Sunday) to "Week Start" (Monday)
+        weekly_df["Date"] = weekly_df["Date"] - pd.Timedelta(days=6)
+
         # Calculate Increment (Difference between this week and previous week)
         weekly_df["Increment"] = weekly_df["mean"].diff()
 
@@ -183,20 +186,26 @@ if st.session_state.get("authentication_status"):
             st.plotly_chart(fig_weekly, use_container_width=True)
 
         # --- TAB 2: DATA TABLES ---
-        # --- TAB 2: DATA TABLES ---
         with tab2:
             st.title("Detailed Analytics")
 
             # --- WEEKLY TABLE ---
             st.subheader("📅 Weekly Summary")
 
+            # 1. Create the copy and sort
             display_weekly = weekly_df.copy().sort_values(by="Date", ascending=False)
+
+            # 2. Reorder columns: Put "Mean ± Std" immediately after "Date"
+            # The columns 'mean' and 'std' are included here but will be hidden by the config
+            column_order = ["Date", "Mean ± Std", "Increment", "Trend", "mean", "std"]
+            display_weekly = display_weekly[column_order]
 
             st.dataframe(
                 display_weekly,
                 column_config={
                     "Date": st.column_config.DateColumn(
-                        "Week Ending", format="DD/MM/YYYY"
+                        "Week Starting",
+                        format="DD/MM/YYYY",  # Label changed to "Starting"
                     ),
                     "Mean ± Std": st.column_config.TextColumn(
                         "Weekly Mean", width="medium"
@@ -205,12 +214,14 @@ if st.session_state.get("authentication_status"):
                         "Increment", format="%+.2f kg"
                     ),
                     "Trend": st.column_config.TextColumn("Trend", width="small"),
-                    "mean": None,
-                    "std": None,
+                    "mean": None,  # Hides the raw column
+                    "std": None,  # Hides the raw column
                 },
                 hide_index=True,
                 use_container_width=True,
             )
+
+            # ... (Rest of your Rolling Average Table code)
 
             # Vertical spacing
             st.markdown("<br>", unsafe_allow_html=True)
