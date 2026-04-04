@@ -89,6 +89,10 @@ if st.session_state.get("authentication_status"):
 
                 conn.update(worksheet="Sheet1", data=final_df)
                 st.success("Weight logged!")
+
+                if "data_to_edit" in st.session_state:
+                    del st.session_state["data_to_edit"]
+
                 st.cache_data.clear()
                 st.rerun()
             except Exception as e:
